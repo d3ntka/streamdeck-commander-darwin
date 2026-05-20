@@ -79,6 +79,43 @@
         };
       };
 
+      lib.mkHaHelpers =
+        { pkgs, haUrl, haToken }:
+        let
+          curl = "${pkgs.curl}/bin/curl";
+          bash = "${pkgs.bash}/bin/bash";
+          jq   = "${pkgs.jq}/bin/jq";
+          authHeader = "Authorization: Bearer ${haToken}";
+          mkHaToggle =
+            { name
+            , entityId
+            , domain   ? "light"
+            , onIcon   ? "light_mode"
+            , offIcon  ? "light_off"
+            }:
+            {
+              type = "toggle";
+              inherit name onIcon offIcon;
+              mode        = "separate";
+              on_command  = curl;
+              on_args     = [ "-sf" "-X" "POST"
+                              "${haUrl}/api/services/${domain}/turn_on"
+                              "-H" authHeader
+                              "-H" "Content-Type: application/json"
+                              "-d" "{\"entity_id\":\"${entityId}\"}" ];
+              off_command = curl;
+              off_args    = [ "-sf" "-X" "POST"
+                              "${haUrl}/api/services/${domain}/turn_off"
+                              "-H" authHeader
+                              "-H" "Content-Type: application/json"
+                              "-d" "{\"entity_id\":\"${entityId}\"}" ];
+              probe_command = bash;
+              probe_args    = [ "-c"
+                                "${curl} -sf -H '${authHeader}' ${haUrl}/api/states/${entityId} | ${jq} -e '.state == \"on\"' > /dev/null" ];
+            };
+        in
+        { inherit mkHaToggle; };
+
       homeManagerModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.programs.streamdeck-commander;
