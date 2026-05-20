@@ -1,0 +1,21 @@
+[package]
+name = "streamdeck-commander"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+streamdeck-oxide = { version = "0.2.1", features = ["plugins"] }
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[features]
+default = []
+
+[build-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"

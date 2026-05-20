@@ -1,0 +1,37 @@
+menu:
+  name: "Main"
+  buttons:
+    - type: command
+      name: "Say Hello"
+      icon: "terminal"
+      command: "/usr/bin/say"
+      args: ["hello from stream deck"]
+
+    - type: command
+      name: "Finder"
+      icon: "folder"
+      command: "/usr/bin/open"
+      args: ["-a", "Finder"]
+
+    - type: command
+      name: "Terminal"
+      icon: "terminal"
+      command: "/usr/bin/open"
+      args: ["-a", "Terminal"]
+
+    - type: menu
+      name: "Dev"
+      icon: "code"
+      buttons:
+        - type: command
+          name: "Say Dev"
+          icon: "terminal"
+          command: "/usr/bin/say"
+          args: ["you are in the dev menu"]
+        - type: command
+          name: "Safari"
+          icon: "language"
+          command: "/usr/bin/open"
+          args: ["-a", "Safari"]
+        - type: back
+          icon: "arrow_back"
