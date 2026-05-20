@@ -15,10 +15,7 @@
           src = self;
           cargoLock.lockFile = ./Cargo.lock;
           buildInputs = [ pkgs.hidapi ]
-            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs.darwin.apple_sdk.frameworks; [
-              IOKit
-              CoreFoundation
-            ]);
+            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.apple-sdk ];
           nativeBuildInputs = [ pkgs.pkg-config ];
           preBuild = ''
             cp ${configYaml} config.yaml
