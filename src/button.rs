@@ -56,6 +56,14 @@ impl CommanderPlugin {
         }
     }
 
+    pub fn new_with_parent_and_state_manager(
+        menu: Menu,
+        parent: Option<Box<CommanderPlugin>>,
+        toggle_state_manager: ToggleStateManager,
+    ) -> Self {
+        Self { menu, parent, toggle_state_manager }
+    }
+
     async fn execute_command(command: &str, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         info!("Executing command: {} {:?}", command, args);
 
@@ -182,6 +190,7 @@ impl CommanderPlugin {
                     let state_manager_for_icon = self.toggle_state_manager.clone();
                     let menu_clone = self.menu.clone();
                     let toggle_state_mgr_clone = self.toggle_state_manager.clone();
+                    let parent_for_refresh = self.parent.clone();
 
                     view.set_button(
                         col,
@@ -197,6 +206,7 @@ impl CommanderPlugin {
                                 let state_mgr = state_manager.clone();
                                 let menu_for_refresh = menu_clone.clone();
                                 let toggle_state_mgr_for_refresh = toggle_state_mgr_clone.clone();
+                                let parent_for_refresh = parent_for_refresh.clone();
 
                                 tokio::spawn(async move {
                                     info!("Toggle button '{}' clicked", name);
@@ -211,7 +221,7 @@ impl CommanderPlugin {
                                     if result.success {
                                         if let Some(commander_ctx) = context.get_context::<CommanderContext>().await {
                                             if let Some(sender) = &commander_ctx.navigation_sender {
-                                                let refreshed_plugin = CommanderPlugin::new_with_state_manager(menu_for_refresh, toggle_state_mgr_for_refresh);
+                                                let refreshed_plugin = CommanderPlugin::new_with_parent_and_state_manager(menu_for_refresh, parent_for_refresh, toggle_state_mgr_for_refresh);
                                                 let refresh_trigger = ExternalTrigger::new(
                                                     PluginNavigation::<U5, U3>::new(refreshed_plugin),
                                                     false
@@ -295,9 +305,10 @@ impl CommanderPlugin {
         if needs_refresh {
             if let Some(commander_ctx) = context.get_context::<CommanderContext>().await {
                 if let Some(sender) = &commander_ctx.navigation_sender {
-                    let refreshed_plugin = CommanderPlugin::new_with_state_manager(
+                    let refreshed_plugin = CommanderPlugin::new_with_parent_and_state_manager(
                         self.menu.clone(),
-                        self.toggle_state_manager.clone()
+                        self.parent.clone(),
+                        self.toggle_state_manager.clone(),
                     );
                     let refresh_trigger = ExternalTrigger::new(
                         PluginNavigation::<U5, U3>::new(refreshed_plugin),
