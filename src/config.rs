@@ -10,6 +10,8 @@ pub struct Config {
     pub brightness: u8,
     #[serde(default = "default_theme")]
     pub theme: String,
+    #[serde(default)]
+    pub idle_sleep_secs: Option<u64>,
 }
 
 fn default_brightness() -> u8 { 100 }

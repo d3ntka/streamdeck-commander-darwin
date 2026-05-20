@@ -1,15 +1,24 @@
 use anyhow::Result;
-use std::{any::{Any, TypeId}, collections::BTreeMap, sync::Arc};
+use std::{
+    any::{Any, TypeId},
+    collections::BTreeMap,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+    time::{SystemTime, UNIX_EPOCH},
+};
 use streamdeck_oxide::{
     button::RenderConfig,
     elgato_streamdeck,
     generic_array::typenum::{U3, U5},
     plugins::{PluginContext, PluginNavigation},
-    run_with_external_triggers,
+    DisplayManager,
     theme::Theme,
     ExternalTrigger,
 };
-use tracing::{info};
+use tokio::time::Duration;
+use tracing::info;
 use tracing_subscriber::{self, EnvFilter};
 
 mod button;
@@ -23,6 +32,88 @@ mod toggle_state;
 use crate::button::{CommanderContext, CommanderPlugin};
 use crate::config::{Config, load_config};
 use crate::toggle_state::ToggleStateManager;
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+type Nav = PluginNavigation<U5, U3>;
+type Trigger = ExternalTrigger<Nav, U5, U3, PluginContext>;
+
+async fn run(
+    config: Arc<Config>,
+    deck: Arc<elgato_streamdeck::AsyncStreamDeck>,
+    render_config: RenderConfig,
+    theme: Theme,
+    context: PluginContext,
+    mut receiver: tokio::sync::mpsc::Receiver<Trigger>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (display_manager, mut nav_receiver) =
+        DisplayManager::<Nav, U5, U3, PluginContext>::new(deck.clone(), render_config, theme, context).await?;
+
+    display_manager.fetch_all().await?;
+    display_manager.render().await?;
+
+    let reader = deck.get_reader();
+    let last_activity = Arc::new(AtomicU64::new(now_secs()));
+    let is_sleeping = Arc::new(AtomicBool::new(false));
+
+    let mut idle_tick = tokio::time::interval(Duration::from_secs(30));
+    idle_tick.tick().await; // skip the immediate first tick
+
+    loop {
+        tokio::select! {
+            events = reader.read(10.0) => {
+                for event in events? {
+                    match event {
+                        elgato_streamdeck::DeviceStateUpdate::ButtonDown(id) => {
+                            last_activity.store(now_secs(), Ordering::Relaxed);
+                            if is_sleeping.swap(false, Ordering::Relaxed) {
+                                deck.set_brightness(config.brightness).await?;
+                                display_manager.fetch_all().await?;
+                                display_manager.render().await?;
+                            } else {
+                                display_manager.on_press(id).await?;
+                            }
+                        }
+                        elgato_streamdeck::DeviceStateUpdate::ButtonUp(id) => {
+                            last_activity.store(now_secs(), Ordering::Relaxed);
+                            if !is_sleeping.load(Ordering::Relaxed) {
+                                display_manager.on_release(id).await?;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Some(nav) = nav_receiver.recv() => {
+                display_manager.navigate_to(nav).await?;
+                display_manager.fetch_all().await?;
+                display_manager.render().await?;
+            }
+            Some(trigger) = receiver.recv() => {
+                if trigger.switch_view || trigger.navigation == display_manager.get_current_navigation().await? {
+                    display_manager.navigate_to(trigger.navigation).await?;
+                    display_manager.fetch_all().await?;
+                    display_manager.render().await?;
+                }
+            }
+            _ = idle_tick.tick() => {
+                if let Some(idle_secs) = config.idle_sleep_secs {
+                    let idle = now_secs().saturating_sub(last_activity.load(Ordering::Relaxed));
+                    if !is_sleeping.load(Ordering::Relaxed) && idle >= idle_secs {
+                        info!("Idle {}s, dimming Stream Deck", idle_secs);
+                        deck.set_brightness(0).await?;
+                        is_sleeping.store(true, Ordering::Relaxed);
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -40,11 +131,8 @@ async fn main() -> Result<()> {
     let config: Config = load_config()?;
     let config = Arc::new(config);
 
-    info!("Configuration loaded from embedded config");
     info!("Main menu: {}", config.menu.name);
-    info!("Number of buttons: {}", config.menu.buttons.len());
 
-    // Wait for device — normal when moving laptop away from desk
     let hid = elgato_streamdeck::new_hidapi()?;
     let (kind, serial) = {
         let mut logged = false;
@@ -62,15 +150,13 @@ async fn main() -> Result<()> {
                 info!("Stream Deck not found, waiting...");
                 logged = true;
             }
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     };
 
     info!("Using Stream Deck: {:?} (Serial: {})", kind, serial);
 
-    let deck = Arc::new(elgato_streamdeck::AsyncStreamDeck::connect(
-        &hid, kind, &serial,
-    )?);
+    let deck = Arc::new(elgato_streamdeck::AsyncStreamDeck::connect(&hid, kind, &serial)?);
 
     info!("Connected to Stream Deck successfully!");
 
@@ -82,7 +168,7 @@ async fn main() -> Result<()> {
         _ => Theme::dark(),
     };
 
-    let (sender, receiver) = tokio::sync::mpsc::channel::<ExternalTrigger<PluginNavigation<U5, U3>, U5, U3, PluginContext>>(1);
+    let (sender, receiver) = tokio::sync::mpsc::channel::<Trigger>(1);
 
     let toggle_state_manager = ToggleStateManager::new();
     let commander_context = CommanderContext {
@@ -91,26 +177,21 @@ async fn main() -> Result<()> {
         navigation_sender: Some(sender.clone()),
     };
 
-    let context = PluginContext::new(BTreeMap::from([
-        (TypeId::of::<CommanderContext>(), Box::new(Arc::new(commander_context)) as Box<dyn Any + Send + Sync>)
-    ]));
+    let context = PluginContext::new(BTreeMap::from([(
+        TypeId::of::<CommanderContext>(),
+        Box::new(Arc::new(commander_context)) as Box<dyn Any + Send + Sync>,
+    )]));
 
     sender.send(ExternalTrigger::new(
-        PluginNavigation::<U5, U3>::new(CommanderPlugin::new_with_state_manager(config.menu.clone(), toggle_state_manager)),
-        true
+        Nav::new(CommanderPlugin::new_with_state_manager(config.menu.clone(), toggle_state_manager)),
+        true,
     )).await?;
 
     info!("Starting Stream Deck application...");
 
-    run_with_external_triggers::<PluginNavigation<U5, U3>, U5, U3, PluginContext>(
-        theme,
-        render_config,
-        deck,
-        context,
-        receiver,
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("StreamDeck application error: {}", e))?;
+    run(config, deck, render_config, theme, context, receiver)
+        .await
+        .map_err(|e| anyhow::anyhow!("StreamDeck error: {}", e))?;
 
     Ok(())
 }

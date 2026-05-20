@@ -125,6 +125,7 @@
               menu = cfg.menu;
               brightness = cfg.brightness;
               theme = cfg.theme;
+              idle_sleep_secs = cfg.idleSleepSecs;
             };
           };
         in
@@ -144,6 +145,11 @@
               type = lib.types.enum [ "light" "dark" ];
               default = "dark";
               description = "Button color theme.";
+            };
+            idleSleepSecs = lib.mkOption {
+              type = lib.types.nullOr lib.types.ints.positive;
+              default = null;
+              description = "Dim screen after this many seconds of inactivity. null = never.";
             };
           };
 
