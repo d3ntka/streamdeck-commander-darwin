@@ -51,9 +51,10 @@ async fn main() -> Result<()> {
         loop {
             let devices = elgato_streamdeck::list_devices(&hid);
             if let Some(device) = devices
-                .into_iter()
+                .iter()
                 .find(|(kind, _)| matches!(kind, elgato_streamdeck::info::Kind::Mk2))
-                .or_else(|| elgato_streamdeck::list_devices(&hid).into_iter().next())
+                .or_else(|| devices.first())
+                .cloned()
             {
                 break device;
             }

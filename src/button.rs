@@ -123,8 +123,8 @@ impl CommanderPlugin {
         let mut button_index = 0;
 
         for button in &self.menu.buttons {
-            if button_index == 14 {
-                button_index += 1;
+            // Skip (4,2) — reserved for the back button placed unconditionally below
+            if col == 4 && row == 2 {
                 col = 0;
                 row = 3;
             }
