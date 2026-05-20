@@ -28,6 +28,7 @@ pub struct CommanderContext {
     pub config: Arc<Config>,
     pub toggle_state_manager: ToggleStateManager,
     pub navigation_sender: Option<tokio::sync::mpsc::Sender<ExternalTrigger<PluginNavigation<U5, U3>, U5, U3, PluginContext>>>,
+    pub activity_sender: Option<tokio::sync::mpsc::Sender<()>>,
 }
 
 impl CommanderPlugin {
@@ -153,10 +154,15 @@ impl CommanderPlugin {
                         ClickButton::new(
                             &name_clone,
                             icons::resolve_icon(icon.as_ref()),
-                            move |_context: PluginContext| {
+                            move |context: PluginContext| {
                                 let cmd = command_clone.clone();
                                 let args = args_clone.clone();
                                 tokio::spawn(async move {
+                                    if let Some(ctx) = context.get_context::<CommanderContext>().await {
+                                        if let Some(sender) = &ctx.activity_sender {
+                                            let _ = sender.try_send(());
+                                        }
+                                    }
                                     if let Err(e) = Self::execute_command(&cmd, &args).await {
                                         error!("Command execution failed: {}", e);
                                     }
@@ -209,6 +215,11 @@ impl CommanderPlugin {
                                 let parent_for_refresh = parent_for_refresh.clone();
 
                                 tokio::spawn(async move {
+                                    if let Some(ctx) = context.get_context::<CommanderContext>().await {
+                                        if let Some(sender) = &ctx.activity_sender {
+                                            let _ = sender.try_send(());
+                                        }
+                                    }
                                     info!("Toggle button '{}' clicked", name);
                                     let result = execute_toggle_command(
                                         &name,
@@ -331,6 +342,11 @@ impl Plugin<U5, U3> for CommanderPlugin {
 
     async fn get_view(&self, context: PluginContext) -> Result<Box<dyn View<U5, U3, PluginContext, PluginNavigation<U5, U3>>>, Box<dyn std::error::Error>> {
         info!("Creating view for menu: {}", self.menu.name);
+        if let Some(ctx) = context.get_context::<CommanderContext>().await {
+            if let Some(sender) = &ctx.activity_sender {
+                let _ = sender.try_send(());
+            }
+        }
         self.probe_initial_toggle_states(&context).await;
         self.create_view_from_menu()
     }
