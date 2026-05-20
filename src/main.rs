@@ -74,8 +74,13 @@ async fn main() -> Result<()> {
 
     info!("Connected to Stream Deck successfully!");
 
+    deck.set_brightness(config.brightness).await?;
+
     let render_config = RenderConfig::default();
-    let theme = Theme::light();
+    let theme = match config.theme.as_str() {
+        "light" => Theme::light(),
+        _ => Theme::dark(),
+    };
 
     let (sender, receiver) = tokio::sync::mpsc::channel::<ExternalTrigger<PluginNavigation<U5, U3>, U5, U3, PluginContext>>(1);
 

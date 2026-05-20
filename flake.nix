@@ -121,7 +121,11 @@
           cfg = config.programs.streamdeck-commander;
           package = mkPackage {
             inherit pkgs;
-            embeddedConfig.menu = cfg.menu;
+            embeddedConfig = {
+              menu = cfg.menu;
+              brightness = cfg.brightness;
+              theme = cfg.theme;
+            };
           };
         in
         {
@@ -130,6 +134,16 @@
             menu = lib.mkOption {
               type = lib.types.attrs;
               description = "Menu configuration — buttons and submenus.";
+            };
+            brightness = lib.mkOption {
+              type = lib.types.ints.between 0 100;
+              default = 100;
+              description = "Screen brightness (0–100).";
+            };
+            theme = lib.mkOption {
+              type = lib.types.enum [ "light" "dark" ];
+              default = "dark";
+              description = "Button color theme.";
             };
           };
 

@@ -6,7 +6,14 @@ const EMBEDDED_CONFIG: &str = include_str!("../config.yaml");
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub menu: Menu,
+    #[serde(default = "default_brightness")]
+    pub brightness: u8,
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
+
+fn default_brightness() -> u8 { 100 }
+fn default_theme() -> String { "dark".to_string() }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Menu {
