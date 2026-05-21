@@ -180,6 +180,17 @@ The flake should:
 
 ---
 
+## Known limitations
+
+| Limitation | Details |
+|---|---|
+| Idle wake only on action buttons | Empty grid positions and Menu/Back buttons don't send on the activity channel, so pressing them won't wake the deck from idle sleep. The first actionable button press (Command or Toggle) does wake it. Fix: store `activity_sender` on `CommanderPlugin`, fill empty cells with invisible no-op `ClickButton`s — medium effort, deferred. |
+| Idle sleep is brightness-only | `set_brightness(0)` dims the screen but doesn't issue a hardware sleep command. The device stays electrically active. Good enough for the use case. |
+| Mac sleep not detected | The deck stays lit when macOS sleeps. Would require IOKit power management notifications (`kIOMessageSystemWillSleep`) — medium complexity, not yet implemented. |
+| HA token baked into binary | The Home Assistant token is embedded at compile time via `include_str!`. It ends up in the Nix store (world-readable). Acceptable for a LAN-only token on a personal machine; not suitable for sensitive credentials. |
+
+---
+
 ## Hardware note
 
 The upstream binary hardcodes Mk2 (`U5, U3` — 5 columns × 3 rows) in `main.rs`:
