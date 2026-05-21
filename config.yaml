@@ -20,6 +20,38 @@ menu:
       args: ["-a", "Terminal"]
 
     - type: menu
+      name: "Spotify"
+      icon: "queue_music"
+      buttons:
+        - type: command
+          name: "Play/Pause"
+          icon: "play_arrow"
+          command: "/usr/bin/osascript"
+          args: ["-e", "tell application \"Spotify\" to playpause"]
+        - type: command
+          name: "Next"
+          icon: "skip_next"
+          command: "/usr/bin/osascript"
+          args: ["-e", "tell application \"Spotify\" to next track"]
+        - type: command
+          name: "Previous"
+          icon: "skip_previous"
+          command: "/usr/bin/osascript"
+          args: ["-e", "tell application \"Spotify\" to previous track"]
+        - type: command
+          name: "Vol Up"
+          icon: "volume_up"
+          command: "/usr/bin/osascript"
+          args: ["-e", "set volume output volume (output volume of (get volume settings) + 10)"]
+        - type: command
+          name: "Vol Down"
+          icon: "volume_down"
+          command: "/usr/bin/osascript"
+          args: ["-e", "set volume output volume (output volume of (get volume settings) - 10)"]
+        - type: back
+          icon: "arrow_back"
+
+    - type: menu
       name: "Dev"
       icon: "code"
       buttons:
