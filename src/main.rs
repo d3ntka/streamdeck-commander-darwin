@@ -2,7 +2,10 @@ use anyhow::Result;
 use std::{
     any::{Any, TypeId},
     collections::BTreeMap,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use streamdeck_oxide::{
     button::RenderConfig,
@@ -19,6 +22,7 @@ use tracing_subscriber::{self, EnvFilter};
 
 mod button;
 mod config;
+mod decorations;
 mod icons;
 mod probe;
 mod toggle_command;
@@ -85,6 +89,7 @@ async fn main() -> Result<()> {
     let (nav_sender, receiver) =
         tokio::sync::mpsc::channel::<ExternalTrigger<PluginNavigation<U5, U3>, U5, U3, PluginContext>>(1);
     let (activity_sender, mut activity_receiver) = tokio::sync::mpsc::channel::<()>(16);
+    let sleeping = Arc::new(AtomicBool::new(false));
 
     let toggle_state_manager = ToggleStateManager::new();
     let commander_context = CommanderContext {
@@ -92,6 +97,7 @@ async fn main() -> Result<()> {
         toggle_state_manager: toggle_state_manager.clone(),
         navigation_sender: Some(nav_sender.clone()),
         activity_sender: Some(activity_sender),
+        sleeping: Some(sleeping.clone()),
     };
 
     let context = PluginContext::new(BTreeMap::from([(
@@ -111,24 +117,26 @@ async fn main() -> Result<()> {
     if let Some(idle_secs) = config.idle_sleep_secs {
         let deck_idle = deck.clone();
         let brightness = config.brightness;
+        let sleeping_task = sleeping.clone();
         tokio::spawn(async move {
             let mut last_activity = std::time::Instant::now();
-            let mut sleeping = false;
             loop {
                 tokio::select! {
                     msg = activity_receiver.recv() => {
                         if msg.is_none() { break; }
                         last_activity = std::time::Instant::now();
-                        if sleeping {
-                            sleeping = false;
+                        if sleeping_task.load(Ordering::SeqCst) {
+                            sleeping_task.store(false, Ordering::SeqCst);
                             deck_idle.set_brightness(brightness).await.ok();
                         }
                     }
                     _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                        if !sleeping && last_activity.elapsed().as_secs() >= idle_secs {
+                        if !sleeping_task.load(Ordering::SeqCst)
+                            && last_activity.elapsed().as_secs() >= idle_secs
+                        {
                             info!("Idle {}s, dimming Stream Deck", idle_secs);
+                            sleeping_task.store(true, Ordering::SeqCst);
                             deck_idle.set_brightness(0).await.ok();
-                            sleeping = true;
                         }
                     }
                 }

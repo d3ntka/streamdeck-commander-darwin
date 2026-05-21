@@ -1,9 +1,16 @@
 use crate::config::{Button, Config, Menu};
+use crate::decorations;
 use crate::icons;
 use crate::toggle_command::execute_toggle_command;
 use crate::toggle_icons::resolve_toggle_icon;
 use crate::toggle_state::ToggleStateManager;
-use std::{process::Stdio, sync::Arc};
+use std::{
+    process::Stdio,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use streamdeck_oxide::{
     generic_array::typenum::{U3, U5},
@@ -29,6 +36,13 @@ pub struct CommanderContext {
     pub toggle_state_manager: ToggleStateManager,
     pub navigation_sender: Option<tokio::sync::mpsc::Sender<ExternalTrigger<PluginNavigation<U5, U3>, U5, U3, PluginContext>>>,
     pub activity_sender: Option<tokio::sync::mpsc::Sender<()>>,
+    pub sleeping: Option<Arc<AtomicBool>>,
+}
+
+impl CommanderContext {
+    fn is_sleeping(&self) -> bool {
+        self.sleeping.as_ref().map(|s| s.load(Ordering::SeqCst)).unwrap_or(false)
+    }
 }
 
 impl CommanderPlugin {
@@ -162,6 +176,9 @@ impl CommanderPlugin {
                                         if let Some(sender) = &ctx.activity_sender {
                                             let _ = sender.try_send(());
                                         }
+                                        if ctx.is_sleeping() {
+                                            return;
+                                        }
                                     }
                                     if let Err(e) = Self::execute_command(&cmd, &args).await {
                                         error!("Command execution failed: {}", e);
@@ -177,13 +194,40 @@ impl CommanderPlugin {
                         name: name.clone(),
                         buttons: buttons.clone(),
                     };
+                    let default_folder = "folder".to_string();
+                    let menu_icon = icon.as_ref().or(Some(&default_folder));
+                    let nav_entry = PluginNavigation::<U5, U3>::new(
+                        CommanderPlugin::new_with_parent(submenu, self.clone()),
+                    );
+                    let resolved_icon = icons::resolve_icon(menu_icon).map(decorations::decorate_menu_icon);
 
-                    view.set_navigation(
+                    view.set_button(
                         col,
                         row,
-                        PluginNavigation::<U5, U3>::new(CommanderPlugin::new_with_parent(submenu, self.clone())),
-                        name,
-                        icons::resolve_icon(icon.as_ref()),
+                        ClickButton::new(
+                            name.as_str(),
+                            resolved_icon,
+                            move |context: PluginContext| {
+                                let nav = nav_entry.clone();
+                                tokio::spawn(async move {
+                                    if let Some(ctx) = context.get_context::<CommanderContext>().await {
+                                        if let Some(sender) = &ctx.activity_sender {
+                                            let _ = sender.try_send(());
+                                        }
+                                        if ctx.is_sleeping() {
+                                            return;
+                                        }
+                                        if let Some(nav_sender) = &ctx.navigation_sender {
+                                            let trigger = ExternalTrigger::new(nav, true);
+                                            if let Err(e) = nav_sender.send(trigger).await {
+                                                error!("Failed to navigate to submenu: {}", e);
+                                            }
+                                        }
+                                    }
+                                });
+                                async move { Ok(()) }
+                            },
+                        ),
                     )?;
                 }
                 Button::Toggle { name, mode, probe_command, probe_args, .. } => {
@@ -218,6 +262,9 @@ impl CommanderPlugin {
                                     if let Some(ctx) = context.get_context::<CommanderContext>().await {
                                         if let Some(sender) = &ctx.activity_sender {
                                             let _ = sender.try_send(());
+                                        }
+                                        if ctx.is_sleeping() {
+                                            return;
                                         }
                                     }
                                     info!("Toggle button '{}' clicked", name);
@@ -273,12 +320,34 @@ impl CommanderPlugin {
 
         if self.parent.is_some() {
             if let Some(parent) = &self.parent {
-                view.set_navigation(
+                let nav_entry = PluginNavigation::<U5, U3>::new(parent.as_ref().clone());
+                view.set_button(
                     4,
                     2,
-                    PluginNavigation::<U5, U3>::new(parent.as_ref().clone()),
-                    "Back",
-                    icons::resolve_icon(Some(&"arrow_back".to_string())),
+                    ClickButton::new(
+                        "Back",
+                        icons::resolve_icon(Some(&"arrow_back".to_string())),
+                        move |context: PluginContext| {
+                            let nav = nav_entry.clone();
+                            tokio::spawn(async move {
+                                if let Some(ctx) = context.get_context::<CommanderContext>().await {
+                                    if let Some(sender) = &ctx.activity_sender {
+                                        let _ = sender.try_send(());
+                                    }
+                                    if ctx.is_sleeping() {
+                                        return;
+                                    }
+                                    if let Some(nav_sender) = &ctx.navigation_sender {
+                                        let trigger = ExternalTrigger::new(nav, true);
+                                        if let Err(e) = nav_sender.send(trigger).await {
+                                            error!("Failed to navigate back: {}", e);
+                                        }
+                                    }
+                                }
+                            });
+                            async move { Ok(()) }
+                        },
+                    ),
                 )?;
             }
         }

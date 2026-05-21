@@ -159,7 +159,8 @@ fn main() {
 
     let default_icons = vec![
         "terminal", "home", "arrow_back", "settings",
-        "toggle_on", "toggle_off", "help", "wifi", "wifi_off"
+        "toggle_on", "toggle_off", "help", "wifi", "wifi_off",
+        "folder",
     ];
     for icon in default_icons {
         icons_by_style

@@ -1,5 +1,6 @@
 pub mod button;
 pub mod config;
+pub mod decorations;
 pub mod icons;
 pub mod probe;
 pub mod toggle_command;
